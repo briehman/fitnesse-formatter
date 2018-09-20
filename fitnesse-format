@@ -1,0 +1,102 @@
+#!/usr/bin/env nodejs
+
+var fs = require('fs');
+var path = require('path');
+
+var fitNesseDir = process.argv.length > 2 ? process.argv[2] : 'fitnesse';
+var wikiFormatterPath = path.join(fitNesseDir, 'files', 'javascript', 'WikiFormatter.js');
+var scanDir = process.argv.length > 3 ? process.argv[3] : fitNesseDir;
+
+if (!fs.existsSync(fitNesseDir)) {
+  console.error(`ERROR: FitNesse not found at path '${fitNesseDir}'. Provide path as first argument.`);
+  process.exit(1);
+} else if (!fs.existsSync(wikiFormatterPath)) {
+  console.error(`ERROR: FitNesse wiki formatter not found at path '${wikiFormatterPath}'. Do you have a recent version of FitNesse? Or maybe the path changed?.`);
+  process.exit(1);
+} else if (!fs.existsSync(scanDir)) {
+  console.error(`ERROR: Scan directory not found at path '${scanDir}'. This can be specified as the second argument.`);
+  process.exit(1);
+}
+
+console.log("FitNesse directory: " + fitNesseDir);
+console.log("Scan directory: " + scanDir);
+
+eval(fs.readFileSync(wikiFormatterPath) + '');
+
+function fromDir(startPath, filter) {
+    if (!fs.existsSync(startPath)) {
+        console.log("no dir ", startPath);
+        return;
+    }
+
+    var files = fs.readdirSync(startPath);
+
+    for (var i = 0; i < files.length; i++) {
+        var filename = path.join(startPath, files[i]);
+        var stat = fs.lstatSync(filename);
+        if (stat.isDirectory()) {
+            fromDir(filename, filter);
+        } else if (filename.indexOf(filter) >= 0 && filename.indexOf("Suite.wiki") < 0) {
+            format(filename);
+        }
+    }
+}
+
+function parseWikiFile(rawContents) {
+    var preamble = [];
+    var contents = [];
+    var lines = rawContents.split(/\r?\n/);
+
+    if (rawContents.startsWith('---\n')) {
+        preamble.push(lines[0]);
+        var isPreamble = true;
+        for (var j = 1; j < lines.length; j++) {
+            var line = lines[j];
+            if (isPreamble) {
+                preamble.push(line);
+            } else {
+                contents.push(line);
+            }
+            if (line === '---') {
+                isPreamble = false;
+            }
+        }
+
+    } else {
+        // We can format the whole file directly
+        contents = lines;
+    }
+
+    return {
+        preamble: preamble,
+        contents: contents
+    };
+}
+
+function format(filename) {
+    inspectedFiles++;
+    var rawContents = fs.readFileSync(filename).toString();
+    var wikiFile = parseWikiFile(rawContents);
+    var preamble = wikiFile.preamble;
+    var contents = wikiFile.contents;
+    var formattedContents = new WikiFormatter().format(contents.join("\n"));
+
+    var fileContents;
+    if (preamble.length > 0) {
+        fileContents = preamble.join("\n") + "\n" + formattedContents;
+    } else {
+        fileContents = formattedContents;
+    }
+
+    if (fileContents !== rawContents) {
+        formattedFiles++;
+        fs.writeFileSync(filename, fileContents);
+        console.log('Formatted: ', filename);
+    }
+}
+
+var inspectedFiles = 0;
+var formattedFiles = 0;
+fromDir(scanDir, '.wiki');
+console.log(`Inspected files ${inspectedFiles}`);
+console.log(`Formatted files ${formattedFiles}`);
